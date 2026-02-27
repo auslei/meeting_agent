@@ -39,6 +39,14 @@ class WeMeetJoiner:
     def join_via_gui(self, meeting_id: str) -> bool:
         """Fallback: Join using the WeMeet app UI."""
         logger.info("Falling back to GUI join.")
+        
+        # 0. Ensure app is open by clicking the icon (as requested by user)
+        wemeet_icon = os.path.join("reference_img", "wemeeticon.png")
+        if os.path.exists(wemeet_icon):
+            logger.info(f"Clicking WeMeet icon: {wemeet_icon}")
+            self.interactor.click_element(wemeet_icon, confidence=0.8)
+            time.sleep(2) # Wait for app to come to front
+
         win = self.interactor.find_window(["WeMeet", "腾讯会议"])
         if not win:
             logger.error("WeMeet window not found.")
