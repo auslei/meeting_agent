@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.env
+
+# Project specific
+cu_agent.log
+test_system_audio.mp3
+recordings/
+.python-version
+
+# Build / IDE
+.vscode/
+.idea/
+.DS_Store

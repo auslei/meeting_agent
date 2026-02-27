@@ -1,0 +1,19 @@
+[project]
+name = "cu-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "loguru>=0.7.3",
+    "numpy>=2.4.2",
+    "opencv-python>=4.13.0.92",
+    "pillow>=12.1.1",
+    "pyautogui>=0.9.54",
+    "pydub>=0.25.1",
+    "pygetwindow>=0.0.9",
+    "pyrect>=0.2.0",
+    "pytesseract>=0.3.13",
+    "pywinctl>=0.4.1",
+    "sounddevice>=0.5.5",
+]
