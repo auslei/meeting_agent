@@ -9,6 +9,7 @@ from src.common.audio_recorder import AudioRecorder
 # Configuration
 POLL_INTERVAL = 10 
 RECORDINGS_DIR = "recordings"
+HISTORY_FILE = "joined_meetings.log"
 
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
@@ -23,17 +24,36 @@ class MeetingAgent:
         self.joiner = WeMeetJoiner(self.interactor)
         self.recorder = AudioRecorder()
         self.in_meeting = False
+        self.joined_history = self._load_history()
+
+    def _load_history(self) -> set:
+        """Load joined meeting IDs from history file."""
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, "r") as f:
+                return set(line.strip() for line in f if line.strip())
+        return set()
+
+    def _save_to_history(self, meeting_id: str):
+        """Save a joined meeting ID to the history file."""
+        self.joined_history.add(meeting_id)
+        with open(HISTORY_FILE, "a") as f:
+            f.write(f"{meeting_id}\n")
 
     def run(self) -> None:
         logger.info("Starting Meeting Agent...")
         
         for event in self.watcher.watch(POLL_INTERVAL):
+            meeting_id = event["value"]
+
             if self.in_meeting:
-                logger.info(f"Already in a meeting. Ignoring: {event}")
+                logger.info(f"Already in a meeting. Ignoring: {meeting_id}")
+                continue
+            
+            if meeting_id in self.joined_history:
+                logger.debug(f"Meeting {meeting_id} already joined in the past. Skipping.")
                 continue
 
-            meeting_id = event["value"]
-            logger.info(f"Detected meeting info: {meeting_id}. Attempting to join...")
+            logger.info(f"Detected new meeting: {meeting_id}. Attempting to join...")
             
             success = self.joiner.join_via_scheme(meeting_id)
             if not success:
@@ -42,7 +62,8 @@ class MeetingAgent:
             
             if success:
                 self.in_meeting = True
-                logger.info("Successfully joined meeting. Starting recording...")
+                self._save_to_history(meeting_id)
+                logger.info(f"Successfully joined meeting {meeting_id}. Starting recording...")
                 
                 timestamp = time.strftime("%Y%m%d_%H%M%S")
                 output_path = os.path.join(RECORDINGS_DIR, f"meeting_{meeting_id}_{timestamp}.mp3")
