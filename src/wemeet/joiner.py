@@ -70,7 +70,9 @@ class WeMeetJoiner:
             self.interactor.type_safely(meeting_id)
             self.interactor.press_key('enter')
             
-            time.sleep(5)
+            # 4. Wait longer for the meeting to initialize
+            logger.info("Waiting 10s for meeting window to initialize...")
+            time.sleep(10)
             return self.verify_in_meeting()
         except Exception as e:
             logger.error(f"Failed to join via GUI: {e}")
@@ -102,12 +104,19 @@ class WeMeetJoiner:
         try:
             box = win.box
             region = (int(box.left), int(box.top), int(box.width), int(box.height))
-            text = self.interactor.ocr_region(region)
+            # Enable debug for verification
+            text = self.interactor.ocr_region(region, debug_name="meeting_verify")
+            logger.debug(f"Verification OCR Text: {text}")
             
-            meeting_keywords = ["mute", "unmute", "camera", "leave", "解除静音", "结束会议", "离开会议"]
+            # Expanded keywords including common UI elements in meeting
+            meeting_keywords = [
+                "mute", "unmute", "camera", "leave", "share", "participants", "chat",
+                "解除静音", "静音", "开启视频", "停止视频", "共享屏幕", "管理成员", "聊天",
+                "结束会议", "离开会议", "结束", "离开"
+            ]
             for kw in meeting_keywords:
                 if kw.lower() in text.lower():
-                    logger.info("Meeting join verified.")
+                    logger.info(f"Meeting join verified via keyword: {kw}")
                     return True
         except Exception as e:
             logger.error(f"Error during verification: {e}")
