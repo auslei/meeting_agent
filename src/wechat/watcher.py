@@ -36,6 +36,10 @@ class WeChatWatcher:
             return None
 
         try:
+            # Activate window to ensure it's on top and visible for the screenshot
+            self.interactor.activate_window(win)
+            time.sleep(0.5) # Wait for OS to bring it to front and redraw
+
             box = win.box
             # WeChat layout: Sidebar (~70px), Chat List (~250px), Chat Content (the rest)
             # We target the right 70% of the window to focus on messages
