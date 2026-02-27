@@ -49,15 +49,26 @@ class GUIInteractor:
         screenshot = pyautogui.screenshot(region=region)
         return cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
 
-    def ocr_region(self, region: Tuple[int, int, int, int]) -> str:
-        """Perform OCR on a region with enhanced preprocessing for Chinese characters."""
+    def ocr_region(self, region: Tuple[int, int, int, int], debug_name: Optional[str] = None) -> str:
+        """Perform OCR on a region with enhanced preprocessing."""
         img = self.capture_region(region)
-        # Upscale for better OCR
-        img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        
+        # Avoid double-upscaling on already large images (e.g. 5K screens)
+        if img.shape[1] < 1000:
+            img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_LANCZOS4)
+        
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # Adaptive thresholding
-        thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2)
-        text = pytesseract.image_to_string(thresh, lang='chi_sim+eng').strip()
+        
+        # Use simple thresholding as a fallback if adaptive is too noisy
+        # For WeChat's light theme, this is often cleaner
+        _, thresh = cv2.threshold(gray, 180, 255, cv2.THRESH_BINARY)
+        
+        if debug_name:
+            debug_path = f"debug_{debug_name}.png"
+            cv2.imwrite(debug_path, thresh)
+            logger.debug(f"Saved OCR debug image to {debug_path}")
+
+        text = pytesseract.image_to_string(thresh, lang='chi_sim+eng', config='--psm 6').strip()
         return text
 
     def click_element(self, image_path: str, confidence: float = 0.8, retries: int = 3, delay: float = 1.0) -> bool:

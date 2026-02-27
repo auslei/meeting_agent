@@ -38,21 +38,34 @@ class WeChatWatcher:
         try:
             box = win.box
             region = (int(box.left), int(box.top), int(box.width), int(box.height))
-            text = self.interactor.ocr_region(region)
+            # Save debug image for the first scan or periodically
+            text = self.interactor.ocr_region(region, debug_name="wechat_scan")
             logger.debug(f"OCR Text: {text}")
 
-            for pattern in self.meeting_patterns:
+            # Broaden matching: look for the 9-10 digit pattern even with noisy prefixes
+            # We allow common OCR errors for "腾讯会议" or just the ID if it's in a clean line
+            flexible_patterns = [
+                # Standard or misread prefixes
+                r'(?:腾讯会议|BRS|RAS|RAKES|会议)[:：]?\s?(\d{3})[- ]?(\d{3})[- ]?(\d{3,4})',
+                r'(?:腾讯会议|BRS|RAS|RAKES|会议)[:：]?\s?(\d{9,10})',
+                # Pure IDs that look like meeting IDs (3-3-3 pattern)
+                r'(?:\s|^)(\d{3})[- ](\d{3})[- ](\d{3,4})(?:\s|$)'
+            ]
+
+            for pattern in flexible_patterns:
                 matches = re.findall(pattern, text)
                 if matches:
-                    if isinstance(matches[0], tuple):
-                        meeting_id = "".join(matches[0])
-                    else:
-                        meeting_id = matches[0]
-                    
-                    if meeting_id != self.last_meeting_id:
-                        logger.info(f"Detected new meeting info: {meeting_id}")
-                        self.last_meeting_id = meeting_id
-                        return {"type": "id_or_code", "value": meeting_id}
+                    # matches can be a list of tuples (for capturing groups)
+                    for match in matches:
+                        if isinstance(match, tuple):
+                            meeting_id = "".join(match)
+                        else:
+                            meeting_id = match
+                        
+                        if meeting_id != self.last_meeting_id:
+                            logger.info(f"Detected potential meeting ID: {meeting_id}")
+                            self.last_meeting_id = meeting_id
+                            return {"type": "id_or_code", "value": meeting_id}
 
         except Exception as e:
             logger.error(f"Error during WeChat scan: {e}")
