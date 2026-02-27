@@ -97,6 +97,14 @@ class AudioRecorder:
             logger.error(f"Recording status error: {status}")
         if self.recording:
             self.data.append(indata.copy())
+            # Calculate current RMS volume
+            self.current_volume = np.sqrt(np.mean(indata**2))
+
+    def is_silent(self, threshold: float = 0.005) -> bool:
+        """Check if the current audio level is below a threshold."""
+        if not hasattr(self, 'current_volume'):
+            return True
+        return self.current_volume < threshold
 
     def start(self) -> None:
         """Start recording in a background thread."""
@@ -108,6 +116,7 @@ class AudioRecorder:
         
         self.recording = True
         self.data = []
+        self.current_volume = 0.0
         
         def run():
             try:

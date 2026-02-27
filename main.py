@@ -78,14 +78,37 @@ class MeetingAgent:
                 logger.error(f"Could not join meeting {meeting_id}.")
 
     def monitor_meeting(self, output_path: str) -> None:
-        """Poll WeMeet window for active status."""
+        """Poll WeMeet window and check for silence to determine meeting end."""
         logger.info("Monitoring meeting status...")
+        silence_start = None
+        silence_threshold_mins = 5
+        
         while self.in_meeting:
+            # 1. Check if window is still there
             if not self.joiner.verify_in_meeting():
-                logger.info("Meeting ended or window closed.")
+                logger.info("Meeting window disappeared. Assuming meeting ended.")
                 self.in_meeting = False
                 break
-            time.sleep(30)
+            
+            # 2. Check for silence
+            if self.recorder.is_silent():
+                if silence_start is None:
+                    silence_start = time.time()
+                
+                silence_duration = (time.time() - silence_start) / 60
+                logger.debug(f"Silence detected: {silence_duration:.1f} mins")
+                
+                if silence_duration >= silence_threshold_mins:
+                    logger.info(f"Silence exceeded {silence_threshold_mins} mins. Ending meeting.")
+                    self.in_meeting = False
+                    self.joiner.close_meeting()
+                    break
+            else:
+                if silence_start is not None:
+                    logger.info("Audio resumed. Resetting silence timer.")
+                silence_start = None
+
+            time.sleep(30) # Check every 30 seconds
             
         logger.info("Stopping recording and saving...")
         self.recorder.stop(output_path)

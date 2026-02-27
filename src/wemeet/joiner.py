@@ -68,6 +68,22 @@ class WeMeetJoiner:
             logger.error(f"Failed to join via GUI: {e}")
             return False
 
+    def close_meeting(self) -> None:
+        """Close the WeMeet window/meeting."""
+        logger.info("Attempting to close WeMeet...")
+        win = self.interactor.find_window(["WeMeet", "腾讯会议"])
+        if win:
+            self.interactor.activate_window(win)
+            # Try Alt+Q (standard shortcut to leave/end)
+            import pyautogui
+            pyautogui.hotkey('alt', 'q')
+            time.sleep(1)
+            # Sometimes a confirmation dialog appears
+            self.interactor.press_key('enter')
+            logger.info("WeMeet close commands sent.")
+        else:
+            logger.warning("WeMeet window not found for closing.")
+
     def verify_in_meeting(self) -> bool:
         """Verify that we are in a meeting."""
         logger.info("Verifying meeting state...")
