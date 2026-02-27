@@ -37,10 +37,16 @@ class WeChatWatcher:
 
         try:
             box = win.box
-            region = (int(box.left), int(box.top), int(box.width), int(box.height))
-            # Save debug image for the first scan or periodically
-            text = self.interactor.ocr_region(region, debug_name="wechat_scan")
-            logger.debug(f"OCR Text: {text}")
+            # WeChat layout: Sidebar (~70px), Chat List (~250px), Chat Content (the rest)
+            # We target the right 70% of the window to focus on messages
+            width = int(box.width)
+            content_x = int(box.left + (width * 0.3)) 
+            content_width = int(width * 0.7)
+            
+            region = (content_x, int(box.top), content_width, int(box.height))
+            
+            text = self.interactor.ocr_region(region, debug_name="wechat_chat_pane")
+            logger.debug(f"Targeted OCR Text: {text}")
 
             # Broaden matching: look for the 9-10 digit pattern even with noisy prefixes
             # We allow common OCR errors for "腾讯会议" or just the ID if it's in a clean line
