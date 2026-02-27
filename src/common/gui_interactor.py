@@ -44,6 +44,18 @@ class GUIInteractor:
                     return win
         return None
 
+    def activate_window(self, win: pwc.Window) -> bool:
+        """Bring window to foreground and focus it."""
+        try:
+            win.activate()
+            # Some OSs require a small delay to focus
+            time.sleep(0.5)
+            logger.info(f"Activated window: {win.title}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to activate window {win.title}: {e}")
+            return False
+
     def capture_region(self, region: Tuple[int, int, int, int]) -> np.ndarray:
         """Capture a specific region (x, y, w, h)."""
         screenshot = pyautogui.screenshot(region=region)

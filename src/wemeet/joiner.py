@@ -45,8 +45,23 @@ class WeMeetJoiner:
             return False
 
         try:
+            # 1. Activate window
+            self.interactor.activate_window(win)
+            
+            # 2. Click the 'Join' button (reference_img/wemeet_join.png)
+            # This is the 'plus' or 'Join' button mentioned by the user
+            join_btn = os.path.join("reference_img", "wemeet_join.png")
+            if os.path.exists(join_btn):
+                logger.info(f"Looking for join button image: {join_btn}")
+                if self.interactor.click_element(join_btn, confidence=0.7):
+                    time.sleep(1) # Wait for input field
+                else:
+                    logger.warning("Could not find join button image on screen. Trying direct type...")
+            
+            # 3. Type meeting ID
             self.interactor.type_safely(meeting_id)
             self.interactor.press_key('enter')
+            
             time.sleep(5)
             return self.verify_in_meeting()
         except Exception as e:
