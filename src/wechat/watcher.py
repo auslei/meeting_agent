@@ -12,8 +12,12 @@ class WeChatWatcher:
         self.interactor = interactor
         self.last_meeting_id: Optional[str] = None
         self.meeting_patterns = [
+            # Standard pattern
             r'腾讯会议[:：]\s?(\d{3})[- ]?(\d{3})[- ]?(\d{3,4})',
-            r'腾讯会议[:：]\s?(\d{9,10})'
+            r'腾讯会议[:：]\s?(\d{9,10})',
+            # Fallback for OCR misidentifications (like BRS or RAS)
+            r'(?:BRS|RAS|RAKES)[:：]?\s?(\d{3})[- ]?(\d{3})[- ]?(\d{3,4})',
+            r'(?:BRS|RAS|RAKES)[:：]?\s?(\d{9,10})'
         ]
 
     def find_wechat_window(self):

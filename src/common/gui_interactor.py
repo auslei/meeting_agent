@@ -50,10 +50,13 @@ class GUIInteractor:
         return cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
 
     def ocr_region(self, region: Tuple[int, int, int, int]) -> str:
-        """Perform OCR on a region."""
+        """Perform OCR on a region with enhanced preprocessing for Chinese characters."""
         img = self.capture_region(region)
+        # Upscale for better OCR
+        img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+        # Adaptive thresholding
+        thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 2)
         text = pytesseract.image_to_string(thresh, lang='chi_sim+eng').strip()
         return text
 
