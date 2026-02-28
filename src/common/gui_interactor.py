@@ -9,6 +9,7 @@ import pywinctl as pwc
 import platform
 from typing import Optional, List, Tuple
 from pywinauto import Application, Desktop, WindowSpecification
+from pywinauto.keyboard import send_keys
 
 class GUIInteractor:
     """
@@ -52,13 +53,23 @@ class GUIInteractor:
             return None
 
     def find_window_native(self, title_re: str) -> Optional[WindowSpecification]:
-        """Find a window using pywinauto."""
+        """Find a window using pywinauto, resolving ambiguity if multiple found."""
         if self.system != "Windows":
             return None
         try:
-            win = self.desktop.window(title_re=title_re)
-            if win.exists():
-                return win
+            # Get all matching windows
+            all_wins = self.desktop.windows(title_re=title_re)
+            if not all_wins:
+                return None
+            
+            # If multiple, find the one that is likely the main window (visible and largest)
+            if len(all_wins) > 1:
+                logger.debug(f"Multiple windows found for '{title_re}'. Selecting the best match...")
+                # Sort by area (width * height) descending
+                best_win = max(all_wins, key=lambda w: w.rectangle().width() * w.rectangle().height())
+                return self.desktop.window(handle=best_win.handle)
+            
+            return self.desktop.window(handle=all_wins[0].handle)
         except Exception as e:
             logger.debug(f"Native window search failed for '{title_re}': {e}")
         return None
@@ -99,6 +110,26 @@ class GUIInteractor:
         except Exception as e:
             logger.error(f"Failed to type keys into '{auto_id}': {e}")
         return False
+
+    def find_window_by_control(self, control_params: dict) -> Optional[WindowSpecification]:
+        """
+        Find a window by checking if it contains a specific child control.
+        Useful when window titles are empty or dynamic.
+        """
+        if self.system != "Windows":
+            return None
+        
+        logger.info(f"Searching for window containing control: {control_params}")
+        for win in self.desktop.windows():
+            try:
+                # Check if the window has the child we're looking for
+                child = win.child_window(**control_params)
+                if child.exists(timeout=0.1):
+                    logger.info(f"Found target window via control: '{win.window_text()}'")
+                    return win
+            except:
+                continue
+        return None
 
     def find_window(self, title_keywords: List[str]) -> Optional[pwc.Window]:
         """Find a window by title keywords across platforms."""
@@ -183,3 +214,82 @@ class GUIInteractor:
     def press_key(self, key: str) -> None:
         logger.info(f"Pressing key: {key}")
         pyautogui.press(key)
+
+    def search_wechat_chat(self, chat_name: str, timeout: int = 10) -> bool:
+        """
+        Search for a chat by its name in WeChat and click the result to open it.
+        Works across systems by combining UIA and keyboard shortcuts.
+        """
+        if self.system != "Windows":
+            logger.warning("search_wechat_chat is currently only optimized for Windows (UIA).")
+            return False
+
+        try:
+            # 1. Find and Focus WeChat
+            win = self.find_window_by_control({"auto_id": "main_tabbar", "control_type": "ToolBar"})
+            if not win:
+                win = self.find_window_native(r".*(WeChat|微信).*")
+            
+            if not win:
+                logger.error("WeChat window not found. Cannot search.")
+                return False
+
+            win.set_focus()
+            time.sleep(0.5)
+
+            # 2. Trigger Search (Ctrl+F is a standard shortcut in WeChat for Windows)
+            send_keys("^f")
+            time.sleep(0.5)
+
+            # 3. Locate the search box to ensure focus (fallback if Ctrl+F didn't focus)
+            search_box = win.child_window(title="Search", control_type="Edit")
+            if not search_box.exists(timeout=1):
+                # Try broader search by control type 'Edit' (the top-left one)
+                edits = win.descendants(control_type="Edit")
+                if edits:
+                    search_box = min(edits, key=lambda e: (e.rectangle().top, e.rectangle().left))
+                else:
+                    logger.error("Could not find search box in WeChat.")
+                    return False
+            
+            # 4. Type the name and search
+            logger.info(f"Searching for chat: '{chat_name}'")
+            search_box.click_input()
+            # Clear existing search (using Ctrl+A, Backspace)
+            search_box.type_keys("^a{BACKSPACE}", with_spaces=True) 
+            time.sleep(0.5)
+            # Type the actual name
+            search_box.type_keys(chat_name, with_spaces=True)
+            time.sleep(1.5) # Wait for results
+
+            # 5. Locate and click the result
+            # We look for a ListItem that contains our target name
+            # Often results are in a list with auto_id="search_result_list" or similar
+            found = False
+            
+            # Strategy A: Look for exact name in all ListItems
+            results = win.descendants(control_type="ListItem")
+            for item in results:
+                try:
+                    name = item.window_text()
+                    if chat_name.lower() in name.lower():
+                        logger.info(f"Found search result: '{name}'. Clicking...")
+                        item.click_input()
+                        time.sleep(1)
+                        found = True
+                        break
+                except:
+                    continue
+            
+            if not found:
+                # Strategy B: Fallback to Enter if we typed correctly
+                logger.warning(f"Could not find explicit result for '{chat_name}', trying ENTER...")
+                send_keys("{ENTER}")
+                time.sleep(1)
+                return True
+
+            return found
+
+        except Exception as e:
+            logger.error(f"Error during search_wechat_chat: {e}")
+            return False
