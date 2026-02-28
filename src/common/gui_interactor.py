@@ -8,14 +8,20 @@ from src.common.logger import agent_logger as logger
 import pywinctl as pwc
 import platform
 from typing import Optional, List, Tuple
+from pywinauto import Application, Desktop, WindowSpecification
 
 class GUIInteractor:
     """
     Robust base class for UI automation.
+    Integrates pywinauto for stable Windows-native control interaction.
     """
     def __init__(self, pytesseract_path: Optional[str] = None):
         self._setup_tesseract(pytesseract_path)
+        self.system = platform.system()
         pyautogui.FAILSAFE = True
+        
+        # Initialize pywinauto Desktop for UIA (Universal Image Automation) backend
+        self.desktop = Desktop(backend="uia") if self.system == "Windows" else None
 
     def _setup_tesseract(self, path: Optional[str]) -> None:
         if path:
@@ -23,8 +29,8 @@ class GUIInteractor:
         elif platform.system() == "Windows":
             import os
             paths = [
-                r'C:\Program Files\Tesseract-OCR	esseract.exe',
-                r'C:\Users' + os.getlogin() + r'\AppData\Local\Tesseract-OCR	esseract.exe'
+                r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+                r'C:\Users\\' + os.getlogin() + r'\AppData\Local\Tesseract-OCR\tesseract.exe'
             ]
             for p in paths:
                 if os.path.exists(p):
@@ -33,6 +39,66 @@ class GUIInteractor:
             logger.warning("Tesseract not found in common Windows paths.")
         else:
             pytesseract.pytesseract.tesseract_cmd = 'tesseract'
+
+    def connect_app(self, title_re: str) -> Optional[Application]:
+        """Connect to a running application by title regex."""
+        if self.system != "Windows":
+            return None
+        try:
+            app = Application(backend="uia").connect(title_re=title_re, timeout=5)
+            return app
+        except Exception as e:
+            logger.debug(f"Could not connect to app with title regex '{title_re}': {e}")
+            return None
+
+    def find_window_native(self, title_re: str) -> Optional[WindowSpecification]:
+        """Find a window using pywinauto."""
+        if self.system != "Windows":
+            return None
+        try:
+            win = self.desktop.window(title_re=title_re)
+            if win.exists():
+                return win
+        except Exception as e:
+            logger.debug(f"Native window search failed for '{title_re}': {e}")
+        return None
+
+    def click_button_native(self, window: WindowSpecification, auto_id: str = None, name: str = None) -> bool:
+        """Click a button using pywinauto selectors."""
+        try:
+            if auto_id:
+                btn = window.child_window(auto_id=auto_id, control_type="Button")
+            elif name:
+                btn = window.child_window(title=name, control_type="Button")
+            else:
+                return False
+            
+            if btn.exists(timeout=5):
+                btn.click_input() # click_input is more reliable as it moves mouse
+                logger.info(f"Clicked button: {auto_id or name}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to click button '{auto_id or name}': {e}")
+        return False
+
+    def type_keys_native(self, window: WindowSpecification, text: str, auto_id: str = None) -> bool:
+        """Type text into a control using pywinauto."""
+        try:
+            if auto_id:
+                ctrl = window.child_window(auto_id=auto_id)
+            else:
+                # Fallback to current focus or standard typing
+                window.type_keys(text, with_spaces=True)
+                return True
+            
+            if ctrl.exists(timeout=5):
+                ctrl.set_focus()
+                ctrl.type_keys(text, with_spaces=True)
+                logger.info(f"Typed '{text}' into {auto_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to type keys into '{auto_id}': {e}")
+        return False
 
     def find_window(self, title_keywords: List[str]) -> Optional[pwc.Window]:
         """Find a window by title keywords across platforms."""

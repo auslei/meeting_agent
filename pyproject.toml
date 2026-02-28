@@ -16,4 +16,5 @@ dependencies = [
     "pytesseract>=0.3.13",
     "pywinctl>=0.4.1",
     "sounddevice>=0.5.5",
+    "pywinauto>=0.6.8",
 ]

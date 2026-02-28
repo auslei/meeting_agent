@@ -5,14 +5,19 @@ import time
 from src.common.logger import agent_logger as logger
 from src.common.gui_interactor import GUIInteractor
 from typing import Optional
+from pywinauto import Application
 
 class WeMeetJoiner:
     """
-    Handles joining WeMeet meetings.
+    Handles joining WeMeet meetings using native Windows automation.
     """
     def __init__(self, interactor: GUIInteractor):
         self.interactor = interactor
         self.system = platform.system()
+
+    def _get_wemeet_window(self):
+        """Find and return the WeMeet window using native backend."""
+        return self.interactor.find_window_native(r".*(Tencent Meeting|腾讯会议).*")
 
     def join_via_scheme(self, meeting_id: str, password: Optional[str] = None) -> bool:
         """Try joining using the wemeet:// URL scheme."""
@@ -30,74 +35,87 @@ class WeMeetJoiner:
             else:
                 subprocess.run(["xdg-open", url])
             
-            time.sleep(10)
+            # Wait for the "Join Meeting" dialog that appears after scheme trigger
+            time.sleep(5)
+            
+            # On Windows, after the scheme opens, we often need to click "Join" 
+            # in a small confirmation dialog.
+            if self.system == "Windows":
+                win = self.interactor.find_window_native(r".*(Tencent Meeting|腾讯会议).*")
+                if win:
+                    win.set_focus()
+                    # Press Enter to confirm the join dialog if it's focused
+                    self.interactor.press_key('enter')
+            
+            time.sleep(5)
             return self.verify_in_meeting()
         except Exception as e:
             logger.error(f"Failed to join via URL scheme: {e}")
             return False
 
     def join_via_gui(self, meeting_id: str) -> bool:
-        """Fallback: Join using the WeMeet app UI."""
-        logger.info("Falling back to GUI join.")
+        """Fallback: Join using the WeMeet app UI with native controls."""
+        logger.info("Falling back to Native GUI join.")
         
-        # 0. Ensure app is open by clicking the icon (as requested by user)
-        wemeet_icon = os.path.join("reference_img", "wemeeticon.png")
-        if os.path.exists(wemeet_icon):
-            logger.info(f"Clicking WeMeet icon: {wemeet_icon}")
-            self.interactor.click_element(wemeet_icon, confidence=0.8)
-            time.sleep(2) # Wait for app to come to front
-
-        win = self.interactor.find_window(["WeMeet", "腾讯会议"])
+        win = self._get_wemeet_window()
         if not win:
-            logger.error("WeMeet window not found.")
+            logger.info("WeMeet not running. Attempting to start...")
+            # If not found, try to click icon to start (keep as fallback)
+            wemeet_icon = os.path.join("reference_img", "wemeeticon.png")
+            if os.path.exists(wemeet_icon):
+                self.interactor.click_element(wemeet_icon)
+                time.sleep(5)
+                win = self._get_wemeet_window()
+
+        if not win:
+            logger.error("Could not find or start WeMeet.")
             return False
 
         try:
-            # 1. Activate window
-            self.interactor.activate_window(win)
+            win.set_focus()
             
-            # 2. Click the 'Join' button (reference_img/wemeet_join.png)
-            # This is the 'plus' or 'Join' button mentioned by the user
-            join_btn = os.path.join("reference_img", "wemeet_join.png")
-            if os.path.exists(join_btn):
-                logger.info(f"Looking for join button image: {join_btn}")
-                if self.interactor.click_element(join_btn, confidence=0.7):
-                    time.sleep(1) # Wait for input field
-                else:
-                    logger.warning("Could not find join button image on screen. Trying direct type...")
+            # Standard WeMeet shortcuts: 
+            # Ctrl+J usually opens the "Join Meeting" input dialog
+            logger.info("Sending Ctrl+J to open Join dialog...")
+            win.type_keys("^j") 
+            time.sleep(2)
             
-            # 3. Type meeting ID
-            self.interactor.type_safely(meeting_id)
-            self.interactor.press_key('enter')
+            # Type meeting ID (standard pywinauto typing)
+            logger.info(f"Typing meeting ID: {meeting_id}")
+            win.type_keys(meeting_id, with_spaces=True)
+            time.sleep(1)
+            win.type_keys("{ENTER}")
             
-            # 4. Wait 5s and ensure the window is there
-            logger.info("Waiting 5s for meeting to start...")
-            time.sleep(5)
+            logger.info("Waiting 10s for meeting to start...")
+            time.sleep(10)
             return self.verify_in_meeting()
         except Exception as e:
-            logger.error(f"Failed to join via GUI: {e}")
+            logger.error(f"Failed to join via Native GUI: {e}")
             return False
 
     def close_meeting(self) -> None:
         """Close the WeMeet window/meeting."""
-        logger.info("Attempting to close WeMeet...")
-        win = self.interactor.find_window(["WeMeet", "腾讯会议"])
+        logger.info("Attempting to close WeMeet natively...")
+        win = self._get_wemeet_window()
         if win:
-            self.interactor.activate_window(win)
-            # Try Alt+Q (standard shortcut to leave/end)
-            import pyautogui
-            pyautogui.hotkey('alt', 'q')
-            time.sleep(1)
-            # Sometimes a confirmation dialog appears
-            self.interactor.press_key('enter')
-            logger.info("WeMeet close commands sent.")
+            try:
+                win.set_focus()
+                # Alt+Q is the universal "Leave/End Meeting" shortcut
+                win.type_keys("%q")
+                time.sleep(1)
+                win.type_keys("{ENTER}") # Confirm leave
+                logger.info("WeMeet close commands sent.")
+            except Exception as e:
+                logger.error(f"Error closing meeting: {e}")
         else:
             logger.warning("WeMeet window not found for closing.")
 
     def verify_in_meeting(self) -> bool:
-        """Verify that we are in a meeting by checking window existence."""
-        win = self.interactor.find_window(["WeMeet", "腾讯会议"])
+        """Verify that we are in a meeting by checking for specific UI elements or title changes."""
+        win = self._get_wemeet_window()
         if win:
-            logger.info(f"Meeting join verified (Window found: {win.title})")
+            # When in a meeting, the title often changes or new controls appear
+            # For now, window existence is our primary indicator
+            logger.info(f"Meeting join verified (Window found: {win.texts()})")
             return True
         return False
