@@ -37,106 +37,94 @@ def join_meeting(meeting_id):
     join_window.type_keys("{ENTER}")
 
 
-def recording(duration: int, file_path: str, auto_silence_stop: int):
-    """
-    Start recording the meeting using ffmpeg, the goal is to record all audio using computer input. It should also work 
-    on servers and virtual machines.
-
-    - if duration is -1, it will record until auto_silence_stop is reached.
-    - if duration is not -1, it will record for the specified duration or until auto_silence_stop is reached.
-    - if auto_silence_stop is -1, it will be ignored.
-    
-    duration: duration of recording in seconds
-    file_path: path to save the recording
-    auto_silence_stop: auto silence stop in seconds
-    """
-    
+ffmpeg_path = "C:\\Users\\ausle\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.0.1-full_build\\bin\\ffmpeg.exe"
 import subprocess
+import re
 import time
 import os
-import wave
 import numpy as np
 import pyaudio
 
-def get_audio_device():
-    """Detects the OS and returns the appropriate FFmpeg device string."""
-    import platform
-    current_os = platform.system()
+def get_windows_audio_device():
+    """
+    Finds the 'Stereo Mix' device to record computer output.
+    """
+    cmd = [ffmpeg_path, '-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']
+    result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True, encoding='utf-8')
     
-    if current_os == "Windows":
-        # Uses DirectShow to find audio devices
-        return "audio=Microphone"  # You may need to verify exact name via: ffmpeg -list_devices true -f dshow -i dummy
-    elif current_os == "Linux":
-        return "default" # PulseAudio/ALSA default
-    else:
-        return ":0" # macOS/Darwin
+    # Extract all audio devices
+    devices = re.findall(r'"([^"]+)" \(audio\)', result.stderr)
+    
+    # 1. Target the computer output specifically
+    for d in devices:
+        if any(term in d for term in ["Stereo Mix", "What U Hear", "Wave Out"]):
+            print(f"Success: Found Output Device -> {d}")
+            return f"audio={d}"
+    
+    # 2. If Stereo Mix isn't found, list what IS available so you can troubleshoot
+    print("AVAILABLE DEVICES FOUND:")
+    for i, d in enumerate(devices):
+        print(f" [{i}] {d}")
+        
+    raise RuntimeError("Stereo Mix not found. Please enable it in Windows Sound Settings.")
 
-
-ffmpeg_path = "C:\\Users\\ausle\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.0.1-full_build\\bin\\ffmpeg.exe"
 
 def recording(duration: int, file_path: str, auto_silence_stop: int):
-    # Constants for silence detection
     CHUNK = 1024
     FORMAT = pyaudio.paInt16
     CHANNELS = 1
     RATE = 44100
-    SILENCE_THRESHOLD = 500  # Adjust based on background noise
-    
-    device_name = get_audio_device()
-    f_backend = "dshow" if os.name == "nt" else "pulse"
-    
-    # Start FFmpeg process
+    SILENCE_THRESHOLD = 500 
+
+    try:
+        device_name = "audio=CABLE Output (VB-Audio Virtual Cable)" #get_windows_audio_device()
+        print(f"Attempting to record from: {device_name}")
+    except Exception as e:
+        print(f"Error: {e}")
+        return
+
+    # Using '-t' inside FFmpeg for the duration is more reliable than manually killing it
     ffmpeg_cmd = [
-        ffmpeg_path, '-y', '-f', f_backend, '-i', device_name,
-        '-acodec', 'libmp3lame', file_path
+        ffmpeg_path, '-y', 
+        '-f', 'dshow', 
+        '-i', device_name,
+        '-acodec', 'libmp3lame',
+        '-t', str(duration) if duration != -1 else '3600', # Default 1 hour if -1
+        file_path
     ]
     
+    # We remove DEVNULL so you can see the error if it fails to start
     process = subprocess.Popen(ffmpeg_cmd)
-    
-    # Initialize PyAudio for silence monitoring
+
+    # Silence monitoring logic
     p = pyaudio.PyAudio()
     stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
     
     start_time = time.time()
-    silence_duration = 0
-    
+    silence_count = 0
+
     try:
-        print(f"Recording started to {file_path}...")
-        while True:
-            elapsed = time.time() - start_time
-            
-            # Check for duration limit
-            if duration != -1 and elapsed >= duration:
-                print("Duration limit reached.")
-                break
-            
-            # Check for silence
+        while process.poll() is None: # While FFmpeg is still running
             if auto_silence_stop != -1:
                 data = stream.read(CHUNK, exception_on_overflow=False)
                 audio_data = np.frombuffer(data, dtype=np.int16)
-                peak = np.max(np.abs(audio_data))
-                
-                if peak < SILENCE_THRESHOLD:
-                    silence_duration += (CHUNK / RATE)
+                if np.abs(audio_data).mean() < SILENCE_THRESHOLD:
+                    silence_count += (CHUNK / RATE)
+                    if silence_count >= auto_silence_stop:
+                        print("Silence detected. Stopping...")
+                        break
                 else:
-                    silence_duration = 0
-                
-                if silence_duration >= auto_silence_stop:
-                    print(f"Auto-stop: {auto_silence_stop}s of silence detected.")
-                    break
-            
+                    silence_count = 0
             time.sleep(0.1)
-            
     finally:
-        # Graceful shutdown
         process.terminate()
-        stream.stop_stream()
         stream.close()
         p.terminate()
-        print("Recording saved.")
+        print(f"Recording closed. Check {file_path} size.")
+
 
 #join_meeting("979260822")
-recording(duration=10, file_path="c:/mp3s/test.mp3", auto_silence_stop=5)
+recording(duration=10, file_path="./test.mp3", auto_silence_stop=5)
 
 #join_meeting("721303291")
 # join_btn = wm_window.child_window(title = "加入会议", top_level_only=False)
