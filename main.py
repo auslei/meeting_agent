@@ -1,83 +1,90 @@
 import time
 import os
+import threading
 from src.common.logger import agent_logger as logger
 from src.common.gui_interactor import GUIInteractor
-from src.wechat.watcher import WeChatWatcher
 from src.wemeet.joiner import WeMeetJoiner
 from src.common.audio_recorder import AudioRecorder
 
 # Configuration
-POLL_INTERVAL = 10 
 RECORDINGS_DIR = "recordings"
-HISTORY_FILE = "joined_meetings.log"
 
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
 class MeetingAgent:
     """
-    Main agent that orchestrates WeChat monitoring, WeMeet joining,
-    and audio recording.
+    Main agent that orchestrates WeMeet joining and audio recording.
+    Now triggered via API rather than monitoring WeChat.
     """
     def __init__(self):
         self.interactor = GUIInteractor()
-        self.watcher = WeChatWatcher(self.interactor)
         self.joiner = WeMeetJoiner(self.interactor)
         self.recorder = AudioRecorder()
         self.in_meeting = False
-        self.joined_history = self._load_history()
-
-    def _load_history(self) -> set:
-        """Load joined meeting IDs from history file."""
-        if os.path.exists(HISTORY_FILE):
-            with open(HISTORY_FILE, "r") as f:
-                return set(line.strip() for line in f if line.strip())
-        return set()
-
-    def _save_to_history(self, meeting_id: str):
-        """Save a joined meeting ID to the history file."""
-        self.joined_history.add(meeting_id)
-        with open(HISTORY_FILE, "a") as f:
-            f.write(f"{meeting_id}\n")
-
-    def run(self) -> None:
-        logger.info("Starting Meeting Agent...")
         
-        for event in self.watcher.watch(POLL_INTERVAL):
-            meeting_id = event["value"]
+        # In-memory store to track recording state: { meeting_id: {"status": str, "file": str} }
+        self.state_registry = {}
+        self._lock = threading.Lock()
 
+    def get_meeting_state(self, meeting_id: str) -> dict:
+        """Return the state dict for a given meeting ID."""
+        with self._lock:
+            return self.state_registry.get(meeting_id, {"status": "not_found", "file": None})
+
+    def _set_meeting_state(self, meeting_id: str, status: str, file_path: str = None):
+        """Update the state for a given meeting."""
+        with self._lock:
+            if meeting_id not in self.state_registry:
+                self.state_registry[meeting_id] = {}
+            self.state_registry[meeting_id]["status"] = status
+            if file_path is not None:
+                self.state_registry[meeting_id]["file"] = file_path
+
+    def process_meeting(self, meeting_id: str) -> None:
+        """
+        Attempt to join, monitor, and record the specified meeting.
+        Should be run as a background task.
+        """
+        logger.info(f"Agent instructed to process meeting: {meeting_id}")
+        
+        with self._lock:
             if self.in_meeting:
-                logger.info(f"Already in a meeting. Ignoring: {meeting_id}")
-                continue
+                logger.warning(f"Already in a meeting. Cannot process: {meeting_id}")
+                self._set_meeting_state(meeting_id, "failed - already in meeting")
+                return
+            self.in_meeting = True
             
-            if meeting_id in self.joined_history:
-                logger.debug(f"Meeting {meeting_id} already joined in the past. Skipping.")
-                continue
+        self._set_meeting_state(meeting_id, "joining")
 
-            logger.info(f"Detected new meeting: {meeting_id}. Attempting to join...")
-            
+        logger.info(f"Attempting to join meeting {meeting_id} via GUI automation...")
+        
+        success = self.joiner.join_via_gui(meeting_id)
+        if not success:
+            logger.warning(f"Failed via GUI. Trying scheme fallback...")
             success = self.joiner.join_via_scheme(meeting_id)
-            if not success:
-                logger.warning(f"Failed via scheme. Trying GUI fallback...")
-                success = self.joiner.join_via_gui(meeting_id)
+        
+        if success:
+            self._set_meeting_state(meeting_id, "in_progress")
+            logger.info(f"Successfully joined meeting {meeting_id}. Starting recording...")
             
-            if success:
-                self.in_meeting = True
-                self._save_to_history(meeting_id)
-                logger.info(f"Successfully joined meeting {meeting_id}. Starting recording...")
-                
-                timestamp = time.strftime("%Y%m%d_%H%M%S")
-                output_path = os.path.join(RECORDINGS_DIR, f"meeting_{meeting_id}_{timestamp}.mp3")
-                
-                try:
-                    self.recorder.start()
-                    self.monitor_meeting(output_path)
-                except Exception as e:
-                    logger.error(f"Error during recording: {e}")
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            output_path = os.path.join(RECORDINGS_DIR, f"meeting_{meeting_id}_{timestamp}.mp3")
+            
+            try:
+                self.recorder.start()
+                self.monitor_meeting(meeting_id, output_path)
+            except Exception as e:
+                logger.error(f"Error during recording: {e}")
+                self._set_meeting_state(meeting_id, "failed", output_path)
+                with self._lock:
                     self.in_meeting = False
-            else:
-                logger.error(f"Could not join meeting {meeting_id}.")
+        else:
+            logger.error(f"Could not join meeting {meeting_id}.")
+            self._set_meeting_state(meeting_id, "failed")
+            with self._lock:
+                self.in_meeting = False
 
-    def monitor_meeting(self, output_path: str) -> None:
+    def monitor_meeting(self, meeting_id: str, output_path: str) -> None:
         """Poll WeMeet window and check for silence to determine meeting end."""
         logger.info("Monitoring meeting status...")
         silence_start = None
@@ -113,12 +120,7 @@ class MeetingAgent:
         logger.info("Stopping recording and saving...")
         self.recorder.stop(output_path)
         logger.info(f"Recording saved to {output_path}")
+        self._set_meeting_state(meeting_id, "completed", output_path)
 
 if __name__ == "__main__":
-    agent = MeetingAgent()
-    try:
-        agent.run()
-    except KeyboardInterrupt:
-        logger.info("Agent stopped by user.")
-    except Exception as e:
-        logger.critical(f"Critical error: {e}")
+    logger.info("Main script directly executed. Please run the service using `uv run uvicorn service:app --host 0.0.0.0 --port 8888` instead.")

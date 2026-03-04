@@ -73,18 +73,42 @@ class WeMeetJoiner:
 
         try:
             win.set_focus()
+            time.sleep(1)
             
-            # Standard WeMeet shortcuts: 
-            # Ctrl+J usually opens the "Join Meeting" input dialog
-            logger.info("Sending Ctrl+J to open Join dialog...")
-            win.type_keys("^j") 
+            # 1. Click "Join Meeting" (+) button
+            logger.info("Clicking the 'Join Meeting' button via UI Automation...")
+            try:
+                # Based on standard WeMeet UI, the join button has title "加入会议"
+                join_btn = win.child_window(title="加入会议", control_type="Group")
+                if join_btn.exists(timeout=3):
+                    join_btn.click_input()
+                else:
+                    logger.warning("Join button not found by title, falling back to Ctrl+J")
+                    win.type_keys("^j")
+            except Exception as e:
+                logger.warning(f"Error clicking UI join button: {e}. Falling back to Ctrl+J")
+                win.type_keys("^j") 
+                
             time.sleep(2)
             
-            # Type meeting ID (standard pywinauto typing)
+            # 2. Type meeting ID into the dialog that appears
+            # The dialog is often a separate TopLevel window or nested. We'll find the active window.
             logger.info(f"Typing meeting ID: {meeting_id}")
-            win.type_keys(meeting_id, with_spaces=True)
-            time.sleep(1)
-            win.type_keys("{ENTER}")
+            
+            # If the join dialog opened, it might be the foreground window now
+            current_win = self.interactor.desktop.window(active_only=True)
+            
+            try:
+                # Direct typing to the focused window (the input is usually auto-focused)
+                current_win.type_keys(meeting_id, with_spaces=True)
+                time.sleep(1)
+                current_win.type_keys("{ENTER}")
+            except Exception as e:
+                logger.error(f"Failed to type gracefully into dialog: {e}")
+                # Fallback to base window typing
+                win.type_keys(meeting_id, with_spaces=True)
+                time.sleep(1)
+                win.type_keys("{ENTER}")
             
             logger.info("Waiting 10s for meeting to start...")
             time.sleep(10)

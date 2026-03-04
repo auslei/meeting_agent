@@ -31,7 +31,13 @@ class AudioRecorder:
         
         if system == "Windows":
             for i, dev in enumerate(devices):
-                if "WASAPI" in dev["hostapi_name"] and dev["max_input_channels"] > 0:
+                try:
+                    hostapi_info = sd.query_hostapis(dev["hostapi"])
+                    api_name = hostapi_info["name"]
+                except Exception:
+                    api_name = ""
+                    
+                if "WASAPI" in api_name and dev["max_input_channels"] > 0:
                     if "loopback" in dev["name"].lower():
                         logger.info(f"Found Windows loopback device: {dev['name']} (ID: {i})")
                         return i
