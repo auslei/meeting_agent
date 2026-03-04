@@ -23,79 +23,23 @@ class AudioRecorder:
         self._original_default_source = None
 
     def _get_loopback_device(self) -> Optional[int]:
-        """Find the system audio loopback device ID."""
+        """Find the system audio loopback device ID (Windows WASAPI only)."""
         devices = sd.query_devices()
-        system = platform.system()
         
-        logger.info(f"System: {system}")
-        
-        if system == "Windows":
-            for i, dev in enumerate(devices):
-                try:
-                    hostapi_info = sd.query_hostapis(dev["hostapi"])
-                    api_name = hostapi_info["name"]
-                except Exception:
-                    api_name = ""
-                    
-                if "WASAPI" in api_name and dev["max_input_channels"] > 0:
-                    if "loopback" in dev["name"].lower():
-                        logger.info(f"Found Windows loopback device: {dev['name']} (ID: {i})")
-                        return i
-            logger.warning("No WASAPI loopback device found.")
-            
-        elif system == "Linux":
-            # On Linux, we try to find the monitor sink using pactl
+        for i, dev in enumerate(devices):
             try:
-                # Get the default sink
-                sink_cmd = "pactl info | grep 'Default Sink' | cut -d' ' -f3"
-                default_sink = subprocess.check_output(sink_cmd, shell=True).decode().strip()
-                monitor_source = f"{default_sink}.monitor"
+                hostapi_info = sd.query_hostapis(dev["hostapi"])
+                api_name = hostapi_info["name"]
+            except Exception:
+                api_name = ""
                 
-                logger.info(f"Detected default sink: {default_sink}")
-                logger.info(f"Targeting monitor source: {monitor_source}")
-                
-                # We will set this as the default source temporarily when starting
-                self._target_monitor_source = monitor_source
-                
-                # Find the 'pulse' or 'default' device index in sounddevice
-                for i, dev in enumerate(devices):
-                    if dev['name'] in ['pulse', 'default'] and dev['max_input_channels'] > 0:
-                        logger.info(f"Using Linux {dev['name']} device (ID: {i}) with PulseAudio routing.")
-                        return i
-            except Exception as e:
-                logger.error(f"Failed to detect PulseAudio monitor: {e}")
-            
-        elif system == "Darwin": # macOS
-            for i, dev in enumerate(devices):
-                if "BlackHole" in dev["name"]:
-                    logger.info(f"Found macOS BlackHole device: {dev['name']} (ID: {i})")
+            if "WASAPI" in api_name and dev["max_input_channels"] > 0:
+                if "loopback" in dev["name"].lower():
+                    logger.info(f"Found Windows loopback device: {dev['name']} (ID: {i})")
                     return i
-            logger.error("macOS requires BlackHole for loopback recording.")
-            
+                    
+        logger.warning("No WASAPI loopback device found.")
         return sd.default.device[0]
-
-    def _prepare_linux_recording(self):
-        """On Linux, set the default source to the monitor sink."""
-        if platform.system() == "Linux" and hasattr(self, '_target_monitor_source'):
-            try:
-                # Save current default source
-                curr_cmd = "pactl info | grep 'Default Source' | cut -d' ' -f3"
-                self._original_default_source = subprocess.check_output(curr_cmd, shell=True).decode().strip()
-                
-                # Set default source to monitor
-                logger.info(f"Setting default source to {self._target_monitor_source}")
-                subprocess.run(["pactl", "set-default-source", self._target_monitor_source], check=True)
-            except Exception as e:
-                logger.error(f"Failed to prepare Linux recording: {e}")
-
-    def _cleanup_linux_recording(self):
-        """On Linux, restore the original default source."""
-        if platform.system() == "Linux" and self._original_default_source:
-            try:
-                logger.info(f"Restoring default source to {self._original_default_source}")
-                subprocess.run(["pactl", "set-default-source", self._original_default_source], check=True)
-            except Exception as e:
-                logger.error(f"Failed to cleanup Linux recording: {e}")
 
     def _record_callback(self, indata, frames, time, status):
         """Callback for sounddevice stream."""
@@ -118,8 +62,6 @@ class AudioRecorder:
             logger.warning("Already recording.")
             return
 
-        self._prepare_linux_recording()
-        
         self.recording = True
         self.data = []
         self.current_volume = 0.0
@@ -149,8 +91,6 @@ class AudioRecorder:
         self.recording = False
         if self._thread:
             self._thread.join()
-            
-        self._cleanup_linux_recording()
 
         if not self.data:
             logger.error("No audio data recorded.")

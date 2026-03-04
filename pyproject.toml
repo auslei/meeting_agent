@@ -3,18 +3,12 @@ name = "cu-agent"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "loguru>=0.7.3",
-    "numpy>=2.4.2",
-    "opencv-python>=4.13.0.92",
-    "pillow>=12.1.1",
-    "pyautogui>=0.9.54",
     "pydub>=0.25.1",
     "pygetwindow>=0.0.9",
     "pyrect>=0.2.0",
-    "pytesseract>=0.3.13",
-    "pywinctl>=0.4.1",
     "sounddevice>=0.5.5",
     "pywinauto>=0.6.8",
     "fastapi>=0.135.1",
@@ -23,5 +17,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "pytest>=9.0.2",
     "httpx>=0.28.1",
-    "audioop-lts>=0.2.2",
+    "numpy>=2.4.2",
+    "pywinauto-recorder>=0.6.8",
+    "pyaudio>=0.2.14",
 ]

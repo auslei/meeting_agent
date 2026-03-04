@@ -39,3 +39,11 @@ def inspect_windows():
 
 if __name__ == "__main__":
     inspect_windows()
+
+with UIPath(u"腾讯会议||Windo"):
+	wrapper = find(u"")
+	wrapper.draw_outline()
+
+with UIPath(u"加入会议||Window"):
+	wrapper = find(u"DialogWidget||Group->join_meeting_dialog||Group->加入会议||Button->加入会议||Text")
+	wrapper.draw_outline()
